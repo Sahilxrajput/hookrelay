@@ -1,0 +1,19 @@
+{
+  "name": "hookrelay",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.32.1",
+  "scripts": {
+    "dev": "concurrently -n api,publisher,worker,web -c cyan,yellow,magenta,green \"pnpm --filter @hookrelay/server dev\" \"pnpm --filter @hookrelay/server publisher\" \"pnpm --filter @hookrelay/server worker\" \"pnpm --filter @hookrelay/web dev\"",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm --filter @hookrelay/server test",
+    "db:migrate": "pnpm --filter @hookrelay/server db:migrate",
+    "setup": "node scripts/setup.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.3",
+    "@types/node": "^22.19.0"
+  }
+}

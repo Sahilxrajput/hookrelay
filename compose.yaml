@@ -1,0 +1,107 @@
+name: hookrelay
+x-server: &server
+  build:
+    context: .
+    target: server
+  environment: &environment
+    DATABASE_URL: postgresql://hookrelay:hookrelay@postgres:5432/hookrelay
+    REDIS_URL: redis://redis:6379
+    ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Run node scripts/setup.mjs first}
+    APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3000}
+    NODE_ENV: ${NODE_ENV:-development}
+    WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-10}
+    DELIVERY_TIMEOUT_MS: ${DELIVERY_TIMEOUT_MS:-10000}
+    MAX_ATTEMPTS: ${MAX_ATTEMPTS:-8}
+  restart: unless-stopped
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    migrate:
+      condition: service_completed_successfully
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: hookrelay
+      POSTGRES_PASSWORD: hookrelay
+      POSTGRES_DB: hookrelay
+    ports: ["127.0.0.1:55432:5432"]
+    volumes: ["postgres_data:/var/lib/postgresql/data"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hookrelay"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--maxmemory-policy",
+        "noeviction",
+      ]
+    ports: ["127.0.0.1:56379:6379"]
+    volumes: ["redis_data:/data"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  migrate:
+    build:
+      context: .
+      target: server
+    environment: *environment
+    command: ["pnpm", "--filter", "@hookrelay/server", "db:migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+  api:
+    <<: *server
+    ports: ["127.0.0.1:4000:4000"]
+  publisher:
+    <<: *server
+    command: ["pnpm", "--filter", "@hookrelay/server", "publisher"]
+  worker:
+    <<: *server
+    command: ["pnpm", "--filter", "@hookrelay/server", "worker"]
+  web:
+    build:
+      context: .
+      target: web
+    ports: ["127.0.0.1:3000:3000"]
+    environment:
+      API_URL: http://api:4000
+    depends_on: [api]
+    restart: unless-stopped
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    profiles: [monitoring]
+    volumes:
+      [
+        "./infra/prometheus.yml:/etc/prometheus/prometheus.yml:ro",
+        "prometheus_data:/prometheus",
+      ]
+    ports: ["127.0.0.1:9090:9090"]
+  grafana:
+    image: grafana/grafana:11.6.0
+    profiles: [monitoring]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-change-this-before-exposing}
+    volumes:
+      [
+        "grafana_data:/var/lib/grafana",
+        "./infra/grafana:/etc/grafana/provisioning:ro",
+      ]
+    ports: ["127.0.0.1:3001:3000"]
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
